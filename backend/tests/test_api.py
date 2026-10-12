@@ -497,7 +497,7 @@ async def test_master_data_filters_rate_management_and_invoice_lifecycle(client)
     created = await client.post("/api/v1/invoices", json=invoice_data, headers=headers)
     assert created.status_code == 201
     invoice_id = created.json()["id"]
-    immutable_rate = await client.put(
+    updated_rate_after_invoice = await client.put(
         f"/api/v1/rates/{rate_id}",
         json={
             "provider_id": provider_id,
@@ -509,17 +509,63 @@ async def test_master_data_filters_rate_management_and_invoice_lifecycle(client)
         },
         headers=headers,
     )
-    assert immutable_rate.status_code == 409
+    assert updated_rate_after_invoice.status_code == 200
+    assert updated_rate_after_invoice.json()["rate_per_unit"] == "3.30000"
     assert created.json()["total_amount"] == "33.00"
+    unchanged_draft = await client.get(f"/api/v1/invoices/{invoice_id}")
+    assert unchanged_draft.json()["rate_per_unit"] == "3.20000"
+    assert unchanged_draft.json()["total_amount"] == "33.00"
     invoice_data["quantity"] = "20.000"
     updated = await client.put(f"/api/v1/invoices/{invoice_id}", json=invoice_data, headers=headers)
     assert updated.status_code == 200
-    assert updated.json()["total_amount"] == "65.00"
+    assert updated.json()["rate_per_unit"] == "3.30000"
+    assert updated.json()["total_amount"] == "67.00"
     result = await client.get(
         "/api/v1/invoices?airline_id=1&provider_id=1&billing_month=2026-09-25&status=draft&page_size=1"
     )
     assert result.json()["total"] == 1
     assert (await client.get("/api/v1/invoices?status=not-a-status")).json()["total"] == 0
+    updated_rate_before_new_invoice = await client.put(
+        f"/api/v1/rates/{rate_id}",
+        json={
+            "provider_id": provider_id,
+            "fuel_type": "JET A-1",
+            "rate_per_unit": "3.40000",
+            "currency": "USD",
+            "effective_from": "2020-01-01",
+            "active": True,
+        },
+        headers=headers,
+    )
+    assert updated_rate_before_new_invoice.status_code == 200
+    new_invoice = await client.post(
+        "/api/v1/invoices",
+        json={**invoice_data, "reference": "INV-LIFECYCLE-NEW-RATE", "quantity": "10.000"},
+        headers=headers,
+    )
+    assert new_invoice.status_code == 201
+    assert new_invoice.json()["rate_per_unit"] == "3.40000"
+    assert new_invoice.json()["total_amount"] == "35.00"
+    finalized = await client.post(
+        f"/api/v1/invoices/{new_invoice.json()['id']}/finalize", headers=headers
+    )
+    assert finalized.status_code == 200
+    updated_rate_after_finalization = await client.put(
+        f"/api/v1/rates/{rate_id}",
+        json={
+            "provider_id": provider_id,
+            "fuel_type": "JET A-1",
+            "rate_per_unit": "3.50000",
+            "currency": "USD",
+            "effective_from": "2020-01-01",
+            "active": True,
+        },
+        headers=headers,
+    )
+    assert updated_rate_after_finalization.status_code == 200
+    unchanged_finalized = await client.get(f"/api/v1/invoices/{new_invoice.json()['id']}")
+    assert unchanged_finalized.json()["rate_per_unit"] == "3.40000"
+    assert unchanged_finalized.json()["total_amount"] == "35.00"
     cancelled = await client.post(
         f"/api/v1/invoices/{invoice_id}/cancel",
         json={"reason": "Customer requested correction"},
@@ -976,23 +1022,22 @@ async def test_main_rate_overlap_conflicts_and_integrity_errors(client):
             await main.create_rate(payload, create_failure, admin)
         assert create_failure.rollback_count == 1
 
-        referenced = RateFailureDatabase([1])
-        with pytest.raises(HTTPException) as immutable:
-            await main.update_rate(rate.id, payload, referenced, admin)
-        assert immutable.value.status_code == 409
+        referenced = RateFailureDatabase([None])
+        updated_referenced_rate = await main.update_rate(rate.id, payload, referenced, admin)
+        assert updated_referenced_rate.id == rate.id
 
-        update_overlap = RateFailureDatabase([None, 1])
+        update_overlap = RateFailureDatabase([1])
         with pytest.raises(HTTPException) as overlap:
             await main.update_rate(rate.id, payload, update_overlap, admin)
         assert overlap.value.status_code == 409
 
-        update_failure = RateFailureDatabase([None, None], overlap_error)
+        update_failure = RateFailureDatabase([None], overlap_error)
         with pytest.raises(HTTPException) as update_conflict:
             await main.update_rate(rate.id, payload, update_failure, admin)
         assert update_conflict.value.status_code == 409
         assert update_failure.rollback_count == 1
 
-        unrelated_update = RateFailureDatabase([None, None], unrelated_error)
+        unrelated_update = RateFailureDatabase([None], unrelated_error)
         with pytest.raises(IntegrityError):
             await main.update_rate(rate.id, payload, unrelated_update, admin)
         assert unrelated_update.rollback_count == 1

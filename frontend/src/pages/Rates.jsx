@@ -87,6 +87,22 @@ export function Rates() {
       return;
     try {
       await api.delete(`/rates/${rate.id}`);
+      if (edit?.id === rate.id) setEdit(null);
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  async function deleteRate(rate) {
+    if (
+      !window.confirm(
+        "Permanently delete this rate? Existing invoices will keep their saved rate and totals.",
+      )
+    )
+      return;
+    try {
+      await api.delete(`/rates/${rate.id}/permanent`);
+      setEdit(null);
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -98,7 +114,7 @@ export function Rates() {
       <PageHeading
         eyebrow="RATE MANAGEMENT"
         title="Fuel rates"
-        subtitle="Time-bound rates are selected by provider, fuel type and invoice date."
+        subtitle="Edit rates at any time; existing invoices keep their saved rate and totals."
         action={
           <button onClick={() => setEdit({})} className="btn btn-primary">
             <i className="bi bi-plus-lg me-2" />
@@ -207,6 +223,16 @@ export function Rates() {
               </label>
             )}
             <div className="wide form-actions">
+              {edit.id && (
+                <button
+                  type="button"
+                  className="btn btn-outline-danger me-auto"
+                  onClick={() => deleteRate(edit)}
+                >
+                  <i className="bi bi-trash me-2" />
+                  Delete rate
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-light"

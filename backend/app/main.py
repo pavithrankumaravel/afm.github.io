@@ -392,10 +392,6 @@ async def update_rate(
     row = await db.get(FuelRate, rate_id)
     if not row:
         raise HTTPException(404, "Rate not found")
-    if await db.scalar(select(Invoice.id).where(Invoice.rate_id == rate_id).limit(1)):
-        raise HTTPException(
-            409, "A rate referenced by an invoice is immutable; create a new rate period"
-        )
     end = data.effective_to or date.max
     overlap = await db.scalar(
         select(FuelRate.id)
@@ -432,6 +428,21 @@ async def get_rate(
     if not row:
         raise HTTPException(404, "Rate not found")
     return row
+
+
+@app.delete("/api/v1/rates/{rate_id}/permanent", status_code=204)
+async def delete_rate(
+    rate_id: int, db: AsyncSession = Depends(get_db), _: Admin = Depends(current_admin)
+):
+    row = await db.get(FuelRate, rate_id)
+    if not row:
+        raise HTTPException(404, "Rate not found")
+    await db.delete(row)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(409, "Rate could not be deleted because it is still referenced") from exc
 
 
 @app.delete("/api/v1/rates/{rate_id}", status_code=204)

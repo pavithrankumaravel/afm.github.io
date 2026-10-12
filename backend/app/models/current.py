@@ -111,7 +111,10 @@ class Invoice(Base):
     provider_id: Mapped[int] = mapped_column(
         ForeignKey("providers.id", ondelete="RESTRICT"), index=True
     )
-    rate_id: Mapped[int] = mapped_column(ForeignKey("fuel_rates.id", ondelete="RESTRICT"))
+    # Invoices retain their saved rate and amounts even when the source rate is deleted.
+    rate_id: Mapped[int | None] = mapped_column(
+        ForeignKey("fuel_rates.id", ondelete="SET NULL"), nullable=True
+    )
     airline_code: Mapped[str] = mapped_column(String(24))
     airline_name: Mapped[str] = mapped_column(String(160))
     provider_code: Mapped[str] = mapped_column(String(24))

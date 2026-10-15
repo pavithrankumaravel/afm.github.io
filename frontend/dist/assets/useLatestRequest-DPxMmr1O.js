@@ -1,0 +1,1 @@
+import{r as n}from"./index-CunPxuBa.js";function u(){const r=n.useRef(null);return n.useEffect(()=>()=>{var e;(e=r.current)==null||e.abort()},[]),n.useCallback(e=>{var o;(o=r.current)==null||o.abort();const t=new globalThis.AbortController;return r.current=t,Promise.resolve().then(()=>e(t.signal)).finally(()=>{r.current===t&&(r.current=null)})},[])}export{u};
